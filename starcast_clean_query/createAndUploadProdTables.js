@@ -445,8 +445,8 @@ function convertValue(value, columnName = '') {
     }
   }
 
-  // Try to parse as ISO timestamp for created_at/updated_at
-  if ((columnName === 'created_at' || columnName === 'updated_at') && strValue.includes("T")) {
+  // Try to parse as ISO timestamp for created_at/updated_at (snake_case) or createdAt/updatedAt (camelCase)
+  if ((columnName === 'created_at' || columnName === 'updated_at' || columnName === 'createdAt' || columnName === 'updatedAt') && strValue.includes("T")) {
     try {
       const date = new Date(strValue);
       if (!isNaN(date.getTime())) {

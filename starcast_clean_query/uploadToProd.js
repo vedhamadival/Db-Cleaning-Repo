@@ -7,13 +7,15 @@
  * Flexible CSV Detection:
  *   - Automatically detects PROD USER/TALENT.csv or DEV_OLD_USER/TALENT.csv
  *   - Use environment variables to override:
- *     CSV_USERS, CSV_TALENTS (file paths)
- *     TABLE_USERS, TABLE_TALENTS (table names)
- *     DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME
+ *     DATABASE_URL - Full PostgreSQL connection URL
+ *     CSV_USERS, CSV_TALENTS - File paths to CSV files
+ *     TABLE_USERS, TABLE_TALENTS - Table names (for different schemas or case-sensitive names)
  * 
  * Usage: 
  *   node uploadToProd.js
- *   CSV_USERS=/path/to/file.csv node uploadToProd.js
+ *   DATABASE_URL="postgresql://user:pass@host:5432/db" node uploadToProd.js
+ *   TABLE_USERS="User" TABLE_TALENTS="Talent" node uploadToProd.js
+ *   DATABASE_URL="postgresql://..." CSV_USERS="/path/to/file.csv" node uploadToProd.js
  */
 
 const { Client } = require('pg');
@@ -25,12 +27,10 @@ const parse = require('csv-parse/sync');
 // CONFIGURATION - All configurable via environment variables
 // ============================================================================
 
+const DB_URL = 'postgresql://ved:yourpassword@localhost:5432/starcast';
+
 const dbConfig = {
-  host: 'localhost',
-  port: 5432,
-  user: 'ved',
-  password: 'yourpassword',
-  database: 'starcast',
+  connectionString: DB_URL,
 };
 
 /**
@@ -63,8 +63,8 @@ const CSV_FILES = {
 
 // Table names - configurable
 const TABLES = {
-  users: process.env.TABLE_USERS || 'prod_user',
-  talents: process.env.TABLE_TALENTS || 'prod_talent',
+  users: process.env.TABLE_USERS || 'User',
+  talents: process.env.TABLE_TALENTS || 'Talent',
 };
 
 // ============================================================================
@@ -169,9 +169,9 @@ async function checkDuplicates(client, table, records, keyField = 'email') {
   if (duplicates.inCsv.length > 0) {
     const csvEmails = duplicates.inCsv.map((d) => d.value);
     const placeholders = csvEmails.map((_, i) => `$${i + 1}`).join(',');
-    const existingQuery = `SELECT ${keyField}, COUNT(*) as cnt FROM ${table} 
-                          WHERE LOWER(${keyField}) IN (${placeholders})
-                          GROUP BY ${keyField}`;
+    const existingQuery = `SELECT \"${keyField}\", COUNT(*) as cnt FROM \"${table}\" 
+                          WHERE LOWER(\"${keyField}\") IN (${placeholders})
+                          GROUP BY \"${keyField}\"`;
     
     try {
       const result = await client.query(existingQuery, csvEmails);
@@ -236,7 +236,7 @@ async function uploadDataSet(client, filePath, table, dataType, keyField = 'emai
   // Get existing values to skip (by keyField)
   const existingValues = new Set();
   try {
-    const result = await client.query(`SELECT "${keyField}" FROM ${table} WHERE "${keyField}" IS NOT NULL`);
+    const result = await client.query(`SELECT "${keyField}" FROM "${table}" WHERE "${keyField}" IS NOT NULL`);
     result.rows.forEach((row) => {
       const value = row[keyField];
       existingValues.add(typeof value === 'string' ? value.toLowerCase() : value);
@@ -319,7 +319,7 @@ async function uploadDataSet(client, filePath, table, dataType, keyField = 'emai
       const placeholders = columns.map((_, i) => `$${i + 1}`).join(',');
       const quotedColumns = columns.map((col) => `"${col}"`).join(',');
 
-      const insertQuery = `INSERT INTO ${table} (${quotedColumns}) VALUES (${placeholders})`;
+      const insertQuery = `INSERT INTO "${table}" (${quotedColumns}) VALUES (${placeholders})`;
       await client.query(insertQuery, values);
       successCount++;
 
@@ -367,7 +367,7 @@ async function uploadDataSet(client, filePath, table, dataType, keyField = 'emai
 
   // Final count
   try {
-    const result = await client.query(`SELECT COUNT(*) as count FROM ${table}`);
+    const result = await client.query(`SELECT COUNT(*) as count FROM "${table}"`);
     console.log(`\n📊 Total in ${table}: ${result.rows[0].count} records`);
   } catch (error) {
     // Silent fail
@@ -390,9 +390,7 @@ async function main() {
 ╔══════════════════════════════════════════════════════════════════════════╗
 ║                PRODUCTION DATA UPLOAD - SAFE MODE                       ║
 ║                                                                          ║
-║  Database: ${dbConfig.database.padEnd(55)}║
-║  Host: ${(dbConfig.host + ':' + dbConfig.port).padEnd(61)}║
-║  User: ${dbConfig.user.padEnd(60)}║
+║  Database URL: ${DB_URL.substring(0, 65).padEnd(65)}║
 ╚══════════════════════════════════════════════════════════════════════════╝
   `);
 

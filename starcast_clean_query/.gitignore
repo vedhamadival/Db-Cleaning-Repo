@@ -1,0 +1,14 @@
+node_modules/
+exported_csvs/
+.env
+*.log
+*.tmp
+*.bak
+dist/
+.DS_Store
+Thumbs.db
+.vscode/
+package-lock.json
+npm-debug.log*
+coverage/
+*.sqlite

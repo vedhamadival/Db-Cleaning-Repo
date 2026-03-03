@@ -18,21 +18,22 @@ function cleanEmail(raw) {
   const v = String(raw).trim();
   if (v.length === 0) return null;
   const lower = v.toLowerCase();
-  // Reject obvious deleted tokens
-  if (lower.includes("deleted") || lower.includes("nulldeleted")) return null;
+  // Reject obvious deleted tokens and corrupted patterns like "nulldeleted0.2026923113407315"
+  if (lower.includes("deleted") || lower.includes("nulldeleted") || /^null\d/.test(lower)) return null;
+
+  // First, try to extract a valid email pattern from the string (handles cases like "email@domain.comdeleted0.xxx")
+  const extractRe = /([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/i;
+  const m = v.match(extractRe);
+  if (m) return m[1].toLowerCase();
 
   // Basic email validation: local@domain.tld (keeps many valid but filters broken strings)
   // This is intentionally conservative and avoids heavy RFC compliance for simplicity.
   const simpleEmailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!simpleEmailRe.test(lower)) {
-    // If it looks like emails are wrapped in brackets or have noise, try to extract an email-like token
-    const extractRe = /([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/i;
-    const m = v.match(extractRe);
-    if (m) return m[1].toLowerCase();
-    return null;
+  if (simpleEmailRe.test(lower)) {
+    return lower;
   }
 
-  return lower;
+  return null;
 }
 
 // Clean name fields — lowercase only for check, keep original case for storage

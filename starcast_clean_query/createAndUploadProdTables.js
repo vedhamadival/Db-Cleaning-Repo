@@ -19,11 +19,11 @@ const client = new Client({
 // ============================================
 const CSV_FILES = [
   {
-    path: "../../PROD USER.csv",
+    path: "prod_user.csv",
     tableName: "prod_user",
   },
   {
-    path: "../../PROD TALENT.csv",
+    path: "prod_talent.csv",
     tableName: "prod_talent",
   },
 ];
@@ -79,7 +79,8 @@ async function createTables() {
   "contact_address" TEXT,
   "applyingForTalentManagement" BOOLEAN DEFAULT false,
   "terms_accepted" BOOLEAN DEFAULT false,
-  "isMigratedTalent" BOOLEAN DEFAULT false,
+  "isMigratedTalent" BOOLEAN DEFAULT true,
+  "migrationMailStatus" VARCHAR(50) DEFAULT 'pending',
   "joined_date_starcast" DATE,
   "talent_agent_name" VARCHAR(150),
   "talent_agent_type" VARCHAR(100),
@@ -457,6 +458,12 @@ function convertValue(value, columnName = '') {
     }
   }
 
+  // DON'T parse ID or email columns as numbers!
+  // ID and email fields should ALWAYS be returned as strings
+  if (columnName === 'id' || columnName === 'userId' || columnName === 'email' || columnName === 'contact_email' || strValue.includes('@')) {
+    return strValue;
+  }
+
   // INTEGER fields - all fee fields and numeric IDs
   const integerFields = [
     'catalogue_lookbook_fee_per_change', 'collab_fee', 'daily_tv_show_per_day_shoot_fee',
@@ -479,15 +486,21 @@ function convertValue(value, columnName = '') {
     return null;  // Return null if can't parse as integer
   }
 
-  // Try to parse as number (generic)
-  const num = parseFloat(strValue);
-  if (!isNaN(num) && strValue !== "") {
-    // Check if it's an integer
-    if (Number.isInteger(num)) {
-      return num;
+  // Try to parse as number (generic) - but only if the entire string is a valid number
+  // This prevents "29sharadbishnoi@gmail.com" from being parsed as 29
+  if (!isNaN(strValue) && !isNaN(parseFloat(strValue))) {
+    // Only parse as number if string contains ONLY numeric/decimal characters
+    if (/^-?\d+\.?\d*$/.test(strValue) || /^-?\d*\.?\d+$/.test(strValue)) {
+      const num = parseFloat(strValue);
+      if (!isNaN(num)) {
+        // Check if it's an integer
+        if (Number.isInteger(num)) {
+          return num;
+        }
+        // It's a float, return as is
+        return num;
+      }
     }
-    // It's a float, but still return as is
-    return num;
   }
 
   // Return as string
@@ -538,9 +551,18 @@ async function insertDataRowByRow(tableName, records) {
     for (let i = 0; i < records.length; i++) {
       const record = records[i];
 
+      // Log specific emails for investigation
+      if (record.email && (record.email.includes('29sharadbishnoi') || record.email.includes('11.urzan'))) {
+          console.log(`\n   🔍 DEBUG: Inserting problematic email '${record.email}' at index ${i} (Row ${i+2})`);
+      }
+
       try {
         await insertSingleRecord(tableName, record, allColumns);
         insertedCount++;
+        
+        if (record.email && (record.email.includes('29sharadbishnoi') || record.email.includes('11.urzan'))) {
+            console.log(`   ✅ DEBUG: Successfully inserted '${record.email}'`);
+        }
 
         // Progress indicator every 5 records or at start/end
         if ((i + 1) % 5 === 0 || i === 0 || i === records.length - 1) {
@@ -549,6 +571,31 @@ async function insertDataRowByRow(tableName, records) {
           );
         }
       } catch (err) {
+        // Check for duplicate email constraint violations - handle them differently
+        if (err.message && err.message.includes('duplicate key') && err.message.includes('email')) {
+          console.log(`\n   ⚠️  Email conflict for '${record.email}' at row ${i + 2}`);
+          console.log(`       Checking if this email already exists in database...`);
+          
+          try {
+            const checkResult = await client.query(
+              'SELECT id, email FROM prod_user WHERE LOWER(email) = LOWER($1) LIMIT 1',
+              [record.email]
+            );
+            
+            if (checkResult.rows.length > 0) {
+              const existing = checkResult.rows[0];
+              console.log(`       Found existing record: ID=${existing.id}, Email=${existing.email}`);
+              console.log(`       Current record: ID=${record.id}, Email=${record.email}`);
+              console.log(`       Skipping duplicate...`);
+            } else {
+              console.log(`       No existing record found! This is unexpected.`);
+              console.log(`       Full error: ${err.message}`);
+            }
+          } catch (checkErr) {
+            console.log(`       Error checking database: ${checkErr.message}`);
+          }
+        }
+        
         failedRecords.push({
           rowNumber: i + 2,
           recordId: record.id || "N/A",

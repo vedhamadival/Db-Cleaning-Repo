@@ -19,11 +19,11 @@ const client = new Client({
 // ============================================
 const CSV_FILES = [
   {
-    path: "../../User (3).csv",
+    path: "dev_user.csv",
     tableName: "dev_user",
   },
   {
-    path: "../../Talent (4).csv",
+    path: "dev_talent.csv",
     tableName: "dev_talent",
   },
 ];
@@ -350,6 +350,8 @@ async function createTables() {
         "username" TEXT,
         "applyingForTalentManagement" TEXT,
         "terms_accepted" TEXT,
+        "isMigratedTalent" TEXT DEFAULT 'true',
+        "migrationMailStatus" TEXT DEFAULT 'pending',
         "middle_name" TEXT,
         "influencer_category" TEXT,
         "presenter_category" TEXT,
@@ -410,7 +412,7 @@ function parseCSVFile(filePath) {
 // ============================================
 // CONVERT VALUE TO PROPER TYPE
 // ============================================
-function convertValue(value) {
+function convertValue(value, columnName = '') {
   if (
     value === null ||
     value === undefined ||
@@ -430,6 +432,11 @@ function convertValue(value) {
 
   if (!strValue || strValue === "null" || strValue === "NULL") {
     return null;
+  }
+
+  // Protect ID columns and email fields from number parsing
+  if (columnName === 'id' || columnName === 'userId' || columnName === 'email' || columnName === 'contact_email' || strValue.includes('@')) {
+    return strValue;
   }
 
   // Try to parse as boolean
@@ -452,15 +459,15 @@ function convertValue(value) {
     }
   }
 
-  // Try to parse as number
-  const num = parseFloat(strValue);
-  if (!isNaN(num) && strValue !== "") {
-    // Check if it's an integer
-    if (Number.isInteger(num)) {
+  // Try to parse as number with strict validation
+  if (/^-?\d+\.?\d*$/.test(strValue) || /^-?\d*\.?\d+$/.test(strValue)) {
+    const num = parseFloat(strValue);
+    if (!isNaN(num)) {
+      if (Number.isInteger(num)) {
+        return num;
+      }
       return num;
     }
-    // It's a float, but still return as is
-    return num;
   }
 
   return strValue;
@@ -476,7 +483,7 @@ async function insertSingleRecord(tableName, record, allColumns) {
   for (const col of allColumns) {
     if (record.hasOwnProperty(col)) {
       const value = record[col];
-      const convertedValue = convertValue(value);
+      const convertedValue = convertValue(value, col);
       columns.push(`"${col}"`);
       values.push(convertedValue);
     }

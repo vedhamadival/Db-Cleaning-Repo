@@ -133,8 +133,8 @@ async function exportCleanActorDetails() {
       "height_inches",
       "feature_film_per_day_fee",
       "daily_tv_show_per_day_shoot_fee",
-      "createdat",
-      "updatedat",
+      "created_at",
+      "updated_at",
     ];
 
     // Convert to CSV
